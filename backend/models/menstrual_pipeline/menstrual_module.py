@@ -1,5 +1,5 @@
-from cycle_tracker import get_cycle_phase, get_skin_risk_from_phase
-from ann_cycle import predict_phase
+from backend.models.menstrual_pipeline.cycle_tracker import get_cycle_phase, get_skin_risk_from_phase
+from backend.models.menstrual_pipeline.ann_cycle import predict_phase
 
 def get_phase(user_data):
     """
