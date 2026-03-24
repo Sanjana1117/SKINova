@@ -1,0 +1,1 @@
+ D:\\SKINova\\frontend\\build\\b3fcf041a1ac91d02f3bd2712babc360\\dart_build_result.json:  C:\\Users\\sanc1\\flutter\\bin\\cache\\dart-sdk\\version D:\\SKINova\\frontend\\pubspec.yaml D:\\minor\\claude-1\\skinova\\.dart_tool\\package_config.json d:\\minor\\claude-1\\skinova\\.dart_tool\\package_config.json

@@ -2,3 +2,12 @@
 __pycache__/
 *.pkl
 saved_models/
+venv/
+data/
+datasets/
+*.parquet
+*.csv
+*.pt
+*.h5
+
+
