@@ -1,0 +1,18 @@
+fastapi
+uvicorn
+pydantic
+pymongo
+python-dotenv
+boto3
+requests
+python-multipart
+scikit-learn
+
+# Product analysis
+pytesseract
+Pillow
+opencv-python
+pyzbar
+
+# Optional — better barcode support on Linux
+# sudo apt install libzbar0
