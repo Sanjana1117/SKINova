@@ -1,144 +1,54 @@
-# app/services/product_service.py
+"""
+product_service.py
+Wraps the product pipeline for the /product/analyze route.
+"""
 
-import io
 import logging
-import numpy as np
-import httpx
-from datetime import datetime
-from PIL import Image
-
+from datetime import datetime, timezone
+from typing import Optional
+from fastapi import UploadFile, HTTPException
 from app.db.mongodb import get_db
+from app.pipelines.products_pipeline.product_pipeline import run_product_pipeline
 
 logger = logging.getLogger(__name__)
 
 
-# 🔥 OCR FUNCTION
-async def extract_text_from_image(image_bytes: bytes) -> str:
-    try:
-        import easyocr
+async def analyze_product(
+    user_id: str,
+    barcode: Optional[str] = None,
+    text: Optional[str] = None,
+    image: Optional[UploadFile] = None,
+) -> dict:
 
-        reader = easyocr.Reader(["en"], gpu=False)
+    input_data = {}
 
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        image_np = np.array(image)
-
-        results = reader.readtext(image_np, detail=0)
-
-        return " ".join(results)
-
-    except ImportError:
-        pass
-
-    try:
-        import pytesseract
-
-        image = Image.open(io.BytesIO(image_bytes))
-        text = pytesseract.image_to_string(image)
-
-        return text.strip()
-
-    except ImportError:
-        logger.error("OCR libraries missing")
-        raise RuntimeError("Install easyocr or pytesseract")
-
-
-# 🔥 OPEN SOURCE API (OpenFoodFacts)
-async def fetch_product(barcode: str):
-    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
-
-    async with httpx.AsyncClient() as client:
-        res = await client.get(url)
-
-    if res.status_code != 200:
-        return None
-
-    data = res.json()
-
-    if data.get("status") != 1:
-        return None
-
-    product = data["product"]
-
-    return {
-        "name": product.get("product_name", "Unknown"),
-        "ingredients": product.get("ingredients_text", ""),
-    }
-
-
-# 🔥 MAIN FUNCTION
-async def analyze_product(user_id, barcode=None, text=None, image=None):
-    # ❌ outside function
-    print("DEBUG INPUT:", barcode, text, image)
-    # 1️⃣ INPUT HANDLING
     if barcode:
-        product = await fetch_product(barcode)
-        if not product:
-            raise Exception("Product not found")
-
-        name = product["name"]
-        ingredients_text = product["ingredients"]
+        input_data["barcode"] = barcode
 
     elif image:
-        image_bytes = await image.read()
-        ingredients_text = await extract_text_from_image(image_bytes)
-        name = "Scanned Product"
+        input_data["image_bytes"] = await image.read()
 
     elif text:
-        name = text
-        ingredients_text = text
+        input_data["name"] = "Manual Entry"
+        input_data["ingredients"] = text
 
     else:
-        raise Exception("Provide barcode, image, or text input")
+        raise HTTPException(status_code=400, detail="Provide barcode, image, or text")
 
-    # 2️⃣ INGREDIENT PARSING
-    ingredients = [
-        i.strip().lower()
-        for i in ingredients_text.split(",")
-        if i.strip()
-    ]
+    result = await run_product_pipeline(user_id, input_data)
 
-    # 3️⃣ TRIGGER DETECTION
-    TRIGGERS = ["paraben", "silicone", "alcohol", "fragrance"]
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
 
-    flagged = [
-        i for i in ingredients
-        if any(t in i for t in TRIGGERS)
-    ]
+    return result
 
-    # 4️⃣ SIMPLE SCORE
-    score = min(5, len(flagged))
 
-    # 5️⃣ SAVE TO DB
+async def get_product_logs(user_id: str) -> list:
     db = get_db()
-
-    log = {
-        "user_id": user_id,
-        "product_name": name,
-        "ingredients": ingredients,
-        "flagged_ingredients": flagged,
-        "comedogenic_score": score,
-        "timestamp": datetime.utcnow(),
-    }
-
-    res = await db["product_logs"].insert_one(log)
-
-    log["id"] = str(res.inserted_id)
-    log["timestamp"] = log["timestamp"].isoformat()
-
-    return log
-
-
-# 🔥 FETCH LOGS
-async def get_product_logs(user_id: str):
-    db = get_db()
-
     logs = []
-    cursor = db["product_logs"].find({"user_id": user_id}).sort("timestamp", -1)
-
-    async for doc in cursor:
-        doc["id"] = str(doc["_id"])
-        doc["timestamp"] = doc["timestamp"].isoformat()
-        doc.pop("_id", None)
+    async for doc in db["product_logs"].find({"user_id": user_id}).sort("created_at", -1):
+        doc["id"] = str(doc.pop("_id"))
+        if isinstance(doc.get("created_at"), datetime):
+            doc["created_at"] = doc["created_at"].isoformat()
         logs.append(doc)
-
     return logs

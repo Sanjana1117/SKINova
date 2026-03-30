@@ -12,6 +12,7 @@ from app.routes.face import router as face_router
 from app.routes.tft import router as tft_router
 from app.routes.dashboard import router as dashboard_router
 from app.routes.cycle import router as cycle_router
+from app.routes.forecast import router as forecast_router          # ← ADD THIS
 from app.routes.routes_models import router as models_router
 
 logging.basicConfig(
@@ -40,11 +41,20 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
+        "http://10.237.1.60:8081",
+        "http://localhost:19006",   # expo web sometimes uses this
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.options("/{full_path:path}")
+async def options_handler():
+    return {"message": "OK"}
 
 
 @app.exception_handler(Exception)
@@ -64,8 +74,9 @@ app.include_router(product_router,   prefix=API_PREFIX)
 app.include_router(face_router,      prefix=API_PREFIX)
 app.include_router(tft_router,       prefix=API_PREFIX)
 app.include_router(dashboard_router, prefix=API_PREFIX)
-app.include_router(cycle_router,     prefix=API_PREFIX)  # ← now has /api prefix
-app.include_router(models_router,    prefix=API_PREFIX)  # ← single include
+app.include_router(cycle_router,     prefix=API_PREFIX)
+app.include_router(forecast_router,  prefix=API_PREFIX)           # ← ADD THIS
+app.include_router(models_router,    prefix=API_PREFIX)
 
 
 @app.get("/api/healthz")

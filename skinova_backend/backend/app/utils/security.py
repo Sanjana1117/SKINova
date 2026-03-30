@@ -2,22 +2,27 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from app.config import settings
+from app.config.settings import settings
+import hashlib
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def hash_password(password: str):
     password = str(password).strip()
-    # Truncate to 72 bytes safely
-    encoded = password.encode("utf-8")[:72]
-    password = encoded.decode("utf-8", errors="ignore")
+    
+    # ✅ Convert to fixed-length hash (no 72-byte issue)
+    print("🔥 NEW HASH FUNCTION USED")
+    password = hashlib.sha256(password.encode()).hexdigest()
+    
     return pwd_context.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     plain_password = str(plain_password).strip()
-    encoded = plain_password.encode("utf-8")[:72]
-    plain_password = encoded.decode("utf-8", errors="ignore")
+    
+    # ✅ SAME preprocessing as hash_password
+    plain_password = hashlib.sha256(plain_password.encode()).hexdigest()
+    
     return pwd_context.verify(plain_password, hashed_password)
 
 

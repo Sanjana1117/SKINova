@@ -1,8 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.dependencies import get_current_user
 from app.services.cycle_service import process_cycle_data
 
-router = APIRouter()
+router = APIRouter(prefix="/cycle", tags=["Cycle"])
 
-@router.post("/cycle/predict")
-async def predict_cycle(data: dict):
-    return await process_cycle_data(data["user_id"], data)
+@router.post("/predict")
+async def predict_cycle(data: dict, current_user: dict = Depends(get_current_user)):
+    return await process_cycle_data(current_user["id"], data)

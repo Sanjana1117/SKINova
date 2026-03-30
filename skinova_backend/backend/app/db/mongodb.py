@@ -1,5 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
-from app.config import settings
+from app.config.settings import settings
 
 client: AsyncIOMotorClient = None
 db: AsyncIOMotorDatabase = None

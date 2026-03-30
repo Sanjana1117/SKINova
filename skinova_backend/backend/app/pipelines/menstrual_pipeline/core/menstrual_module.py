@@ -51,7 +51,8 @@ def get_phase(user_data: dict) -> dict:
         flow=symptoms.get("flow", 0.0),
         stress=symptoms.get("stress", 0.0),
         cycle_history=cycle_history if has_history else None,
-        use_bilstm=True
+        use_bilstm=True,
+        target_date=user_data.get("target_date"),
     )
 
     return {

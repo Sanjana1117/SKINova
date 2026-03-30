@@ -1,76 +1,111 @@
-from datetime import datetime, timedelta
-from app.pipelines.menstrual_pipeline.core.cycle import predict_cycle
-from app.db import mongodb
+"""
+cycle_service.py
+Wraps the menstrual BiLSTM pipeline.
+"""
+
+from datetime import datetime, timedelta, date as date_type
+from app.pipelines.menstrual_pipeline.bilstm_pipeline import run_bilstm_pipeline
+from app.db.mongodb import get_db
 
 
-# 🔥 FIX: handle timezone (Z) properly
-def parse_date(date_str: str) -> datetime:
-    """
-    Converts ISO string to naive datetime (removes timezone)
-    Handles:
-    - 2026-03-01
-    - 2026-03-01T00:00:00
-    - 2026-03-01T00:00:00.000Z
-    """
-    return datetime.fromisoformat(date_str.replace("Z", "")).replace(tzinfo=None)
+
+def _parse_date(s: str) -> datetime:
+    s = s.strip().replace(" ", "-").replace("Z", "")
+    return datetime.fromisoformat(s).replace(tzinfo=None)
 
 
-def get_phase_color(phase):
+def _phase_color(phase: str) -> str:
     return {
-        "Menstrual": "#FF6B6B",
+        "Menstrual":  "#FF6B6B",
         "Follicular": "#4ECDC4",
-        "Ovulatory": "#FFD93D",
-        "Luteal": "#A29BFE"
+        "Ovulatory":  "#FFD93D",
+        "Luteal":     "#A29BFE",
     }.get(phase, "#999")
 
 
-async def process_cycle_data(user_id, data):
+async def process_cycle_data(user_id: str, data: dict) -> dict:
+    """
+    Accepts:
+      {
+        "last_period_start": "YYYY-MM-DD",
+        "cycle_length": 28,
+        "period_duration": 5,
+        "start_date": "YYYY-MM-DD",   # range to predict
+        "end_date":   "YYYY-MM-DD",
+        "symptoms": { "pain": 0.1, "mood": 0.7, "flow": 0.0, "stress": 0.2 }
+      }
+    """
+    cycle_length    = data.get("cycle_length", 28)
+    period_duration = data.get("period_duration", 5)
+    last_period     = _parse_date(data["last_period_start"])
 
-    # ✅ FIXED DATE PARSING
-    start_date = parse_date(data["start_date"])
-    end_date = parse_date(data["end_date"])
-    period_start = parse_date(data["period_start_date"])
-    period_end = parse_date(data["period_end_date"])
+    start_date = _parse_date(data.get("start_date", data["last_period_start"]))
+    end_date   = _parse_date(data.get("end_date",
+                  (last_period + timedelta(days=cycle_length - 1)).isoformat()))
+
+    symptoms = data.get("symptoms", {"pain": 0.1, "mood": 0.7, "flow": 0.0, "stress": 0.2})
 
     predictions = []
-    current_date = start_date
+    cur = start_date
 
-    while current_date <= end_date:
+    while cur <= end_date:
+        days_since = (cur - last_period).days % cycle_length
 
-        # 🔥 dynamic calculation per day
-        days_since_period = (current_date - period_start).days
+        pipeline_input = {
+            "last_period_start": last_period.strftime("%Y-%m-%d"),
+            "cycle_length":      cycle_length,
+            "period_duration":   period_duration,
+            "has_history":       data.get("has_history", False),
+            "symptoms":          symptoms,
+            "target_date":       cur.date() if isinstance(cur, datetime) else cur,
+        }
 
-        cycle_length = data.get("cycle_length", 28)
-
-# 🔥 FIX: wrap cycle
-        days_since_period = days_since_period % cycle_length
-
-        # 🔥 model call
-        result = predict_cycle(
-            days_since_period=days_since_period,
-            past_cycle_lengths=[data.get("cycle_length", 28)],
-            period_duration=(period_end - period_start).days
-        )
+        try:
+            result = run_bilstm_pipeline(pipeline_input)
+        except Exception:
+            # fallback: simple phase calc
+            result = _simple_phase(days_since, cycle_length, period_duration)
 
         predictions.append({
-            "date": current_date.isoformat(),
-            "phase": result["current_phase"],
-            "day_of_cycle": result["current_day"],
-            "color": get_phase_color(result["current_phase"]),
-            "skin_condition": result.get("skin_condition", "normal"),
-            "hormone_info": (
-                f"Cycle length: {result['predicted_cycle_length']} | "
-                f"Ovulation: {result['predicted_ovulation_day']}"
-            )
+            "date":          cur.isoformat(),
+            "phase":         result["phase"],
+            "day_of_cycle":  result["day_of_cycle"],
+            "color":         _phase_color(result["phase"]),
+            "skin_risk":     result.get("skin_risk", 0.5),
+            "phase_description": result.get("phase_description", ""),
+            "dietary_adjustment": result.get("dietary_adjustment", ""),
+            "skin_condition":     result.get("skin_risk", "moderate"),
+            "hormone_info":       result.get("phase_description", ""),
         })
 
-        current_date += timedelta(days=1)
+        cur += timedelta(days=1)
 
-    # ✅ DB SAVE (async correct)
-    await mongodb.db.cycles.insert_one({
-        "user_id": user_id,
-        "input": data,
-        "predictions": predictions
+    # save to DB
+    db = get_db()
+    await db["cycles"].insert_one({
+        "user_id":    user_id,
+        "input":      data,
+        "predictions": predictions,
+        "created_at": datetime.utcnow(),
     })
 
     return {"predictions": predictions}
+
+
+def _simple_phase(days_since: int, cycle_length: int, period_duration: int) -> dict:
+    if days_since < period_duration:
+        phase = "Menstrual"
+    elif days_since < 13:
+        phase = "Follicular"
+    elif days_since < 16:
+        phase = "Ovulatory"
+    else:
+        phase = "Luteal"
+
+    return {
+        "phase":              phase,
+        "day_of_cycle":       days_since + 1,
+        "skin_risk":          0.5,
+        "phase_description":  "",
+        "dietary_adjustment": "",
+    }

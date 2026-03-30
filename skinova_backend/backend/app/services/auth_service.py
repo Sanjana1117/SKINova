@@ -1,7 +1,9 @@
+# app/services/auth_service.py
+
 from datetime import datetime
 from bson import ObjectId
 from fastapi import HTTPException
-from app.db.mongodb import get_db          # ← correct import
+from app.db.mongodb import get_db
 from app.utils.security import hash_password, verify_password, create_access_token
 
 

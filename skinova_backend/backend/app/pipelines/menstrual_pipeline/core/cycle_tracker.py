@@ -47,7 +47,8 @@ def get_cycle_phase(
     flow: float              = 0.0,
     stress: float            = 0.0,
     cycle_history: list      = None,
-    use_bilstm: bool         = True
+    use_bilstm: bool         = True,
+    target_date: date        = None
 ) -> dict:
     """
     Get current hormonal phase using BiLSTM model.
@@ -67,7 +68,7 @@ def get_cycle_phase(
         dict with phase, day_of_cycle, days_left_in_phase, skin_risk,
         tft_weight_multiplier, phase_context, confidence (if BiLSTM)
     """
-    today = date.today()
+    today = target_date if target_date is not None else date.today()
     last_period = date.fromisoformat(last_period_start)
     days_since_period = (today - last_period).days % cycle_length
     day_of_cycle = days_since_period + 1
