@@ -9,3 +9,9 @@ datasets/
 *.csv
 *.pt
 *.h5
+class_names.json
+vit_small_best.pt
+skinova_tft_best.ckpt
+skinova_bisltm_best.pt
+skinova_cnn_scratch_best.pth
+skinova_yolo_best.pt
