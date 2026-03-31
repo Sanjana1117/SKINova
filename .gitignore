@@ -2,9 +2,6 @@
 __pycache__/
 *.pkl
 saved_models/
-<<<<<<< HEAD
-vir/
-=======
 venv/
 data/
 datasets/
@@ -12,6 +9,3 @@ datasets/
 *.csv
 *.pt
 *.h5
-
-
->>>>>>> 1ea3397ecf52f90ad59e757c4f733d20044caa4a
