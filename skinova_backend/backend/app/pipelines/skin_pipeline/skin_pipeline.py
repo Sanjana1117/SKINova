@@ -16,14 +16,11 @@ def get_skin_models():
     
     return yolo, cnn
 
-
-# CNN class labels — update to match your training labels
 CNN_CLASSES = [
     "Normal", "Acne", "Rosacea",
     "Eczema", "Hyperpigmentation",
     "Dryness", "Oiliness",
 ]
-
 
 def run_yolo(model, image_bytes: bytes) -> dict:
     from PIL import Image
@@ -96,7 +93,6 @@ def calculate_skin_score(yolo_out: dict, cnn_out: dict) -> float:
     )
     return round(max(0.0, min(100.0, 100.0 - lesion_penalty - condition_penalty)), 1)
 
-
 def run_skin_pipeline(image_bytes: bytes) -> dict:
     """
     Main entry point — called by face_service.py
@@ -140,3 +136,5 @@ def run_skin_pipeline(image_bytes: bytes) -> dict:
         "models_used":       models_used,
         "mock":              len(models_used) == 0,
     }
+    
+    

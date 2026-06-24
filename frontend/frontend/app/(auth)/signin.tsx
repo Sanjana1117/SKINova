@@ -37,6 +37,7 @@ function LoginButton({
   const scale = useSharedValue(1);
   const aStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
+
   return (
     <Animated.View style={aStyle}>
       <Pressable
@@ -95,6 +96,8 @@ const handleSignIn = async () => {
 
     const token = res.access_token; // ✅ FIXED
     const user = res.user;
+
+    await AsyncStorage.setItem("skinova_token", token);
 
     if (!token || !user) {
       throw new Error("Invalid response from backend");

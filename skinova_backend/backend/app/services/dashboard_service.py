@@ -1,25 +1,36 @@
-from datetime import datetime, timezone, timedelta
-import httpx
+# app/services/dashboard_service.py
+"""
+Dashboard service — now uses fully personalized trigger detection.
+No hardcoded ingredient keywords. Every trigger is learned from the user's data.
+"""
+
 import logging
+from datetime import datetime, timezone, timedelta
+
 from fastapi import HTTPException
-from app.db.mongodb import get_db
-from app.config import settings
 from bson import ObjectId
+
+from app.db.mongodb import get_db
+from app.services.trigger_service import get_personalized_trigger_events
 
 logger = logging.getLogger(__name__)
 
 
-async def _call_bilstm_model(last_period_end_date: str) -> str:
-    if not settings.BILSTM_MODEL_URL:
-        raise HTTPException(status_code=503, detail="BiLSTM model endpoint not configured")
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            settings.BILSTM_MODEL_URL,
-            json={"last_period_end_date": last_period_end_date},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    return data.get("phase", "")
+def _to_date(ts) -> str:
+    if isinstance(ts, datetime):
+        return ts.strftime("%Y-%m-%d")
+    if isinstance(ts, str):
+        return ts.replace("Z", "").split("T")[0][:10]
+    return ""
+
+
+def _normalize_risk(value) -> int:
+    if value is None:
+        return 0
+    v = float(value)
+    if v <= 1.0:
+        return round(v * 100)
+    return round(v)
 
 
 async def get_dashboard(user_id: str) -> dict:
@@ -31,40 +42,77 @@ async def get_dashboard(user_id: str) -> dict:
 
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
-    skin_score_timeline = []
+    # ── Skin scores (last 7 days) ────────────────────────────────────────────
+    skin_scores = []
     async for doc in db["face_logs"].find(
         {"user_id": user_id, "timestamp": {"$gte": seven_days_ago}}
     ).sort("timestamp", 1):
-        skin_score_timeline.append({
-            "date": doc["timestamp"].strftime("%Y-%m-%d") if hasattr(doc["timestamp"], "strftime") else str(doc["timestamp"]),
-            "score": doc.get("overall_skin_score", 0.0),
+        raw_score = doc.get("skin_score") or doc.get("overall_skin_score") or 0
+        skin_scores.append({
+            "date": _to_date(doc.get("timestamp")),
+            "score": round(float(raw_score)),
         })
 
-    latest_forecast = await db["forecasts"].find_one(
-        {"user_id": user_id}, sort=[("timestamp", -1)]
-    )
-    if latest_forecast:
-        latest_forecast.pop("_id", None)
-        if "timestamp" in latest_forecast and hasattr(latest_forecast["timestamp"], "isoformat"):
-            latest_forecast["timestamp"] = latest_forecast["timestamp"].isoformat()
+    # ── Forecast ─────────────────────────────────────────────────────────────
+    forecast_text = ""
+    overall_risk = 0
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    trigger_timeline = []
-    async for doc in db["triggers"].find(
-        {"user_id": user_id, "timestamp": {"$gte": seven_days_ago}}
-    ).sort("timestamp", 1):
-        trigger_timeline.append({
-            "date": doc.get("date"),
-            "triggers": doc.get("triggers", []),
-            "source": doc.get("source", ""),
+    try:
+        from app.services.forecast_service import get_day_report_with_llm
+        day_report = await get_day_report_with_llm(user_id, today_str)
+        forecast_text = day_report.get("llm_explanation", "")
+        overall_risk = _normalize_risk(day_report.get("risk_score", 0))
+    except Exception as e:
+        logger.warning(f"[Dashboard] forecast failed: {e}")
+
+    # ── Cycle stats ──────────────────────────────────────────────────────────
+    cycle_stats = {}
+    cycle_phase = ""
+    cycle_day = 0
+    if user.get("gender") == "female":
+        try:
+            from app.services.cycle_service import get_cycle_stats
+            cycle_stats = await get_cycle_stats(user_id)
+            
+            # Get current cycle phase
+            last_period_start = user.get("last_period_start")
+            if last_period_start:
+                from app.pipelines.menstrual_pipeline.core.cycle_tracker import get_cycle_phase
+                phase_data = get_cycle_phase(
+                    last_period_start=last_period_start,
+                    cycle_length=cycle_stats.get("average_cycle_length", 28),
+                    target_date=datetime.now(timezone.utc).date()
+                )
+                cycle_phase = phase_data.get("phase", "")
+                cycle_day = phase_data.get("day_of_cycle", 0)
+        except Exception as e:
+            logger.warning(f"[Dashboard] cycle stats failed: {e}")
+
+    # ── Personalized trigger events ──────────────────────────────────────────
+    # Fully learned from user's own food_logs + face_logs.
+    # No hardcoded dairy/keyword lists.
+    try:
+        trigger_events = await get_personalized_trigger_events(db, user_id)
+    except Exception as e:
+        logger.warning(f"[Dashboard] trigger detection failed: {e}")
+        trigger_events = []
+
+    # ── Active products summary ───────────────────────────────────────────────
+    active_products = []
+    async for doc in db["user_products"].find({"user_id": user_id, "is_active": True}):
+        active_products.append({
+            "name": doc.get("product_name", ""),
+            "comedogenic_score": doc.get("comedogenic_score", 0),
         })
-
-    hormonal_phase = None
-    if user.get("gender", "").lower() == "female" and user.get("last_period_end_date"):
-        hormonal_phase = await _call_bilstm_model(user["last_period_end_date"])
 
     return {
-        "skin_score_timeline": skin_score_timeline,
-        "forecast": latest_forecast,
-        "trigger_timeline": trigger_timeline,
-        "hormonal_phase": hormonal_phase,
+        "skin_scores": skin_scores,
+        "forecast": forecast_text or "Log data to get AI insights.",
+        "risk_score": overall_risk,
+        "trigger_events": trigger_events,
+        "active_products": active_products,
+        "cycle_stats": cycle_stats,
+        "cycle_phase": cycle_phase,
+        "cycle_day": cycle_day,
     }

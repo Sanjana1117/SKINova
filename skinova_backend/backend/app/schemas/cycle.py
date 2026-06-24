@@ -10,6 +10,12 @@ class CycleInput(BaseModel):
     cycle_length: Optional[int] = 28
 
 
+class PeriodLog(BaseModel):
+    user_id: str
+    period_start: str  # ISO date
+    period_end: Optional[str] = None  # ISO date, optional
+
+
 class Prediction(BaseModel):
     date: str
     phase: str

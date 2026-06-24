@@ -1,6 +1,6 @@
 # app/services/food_service.py
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import UploadFile, HTTPException
 from app.db.mongodb import get_db
@@ -17,31 +17,39 @@ async def analyze_food(user_id: str, barcode=None, text=None, image: Optional[Up
         image_bytes = await image.read()
         result = run_vit_pipeline(image_bytes)
     elif text:
-        # text mode — simple keyword risk check
         ingredients = [t.strip() for t in text.split(",")]
-        bad = [i for i in ingredients if any(w in i.lower() for w in ["sugar","oil","dairy","cream","butter","fried"])]
+        bad = [i for i in ingredients if any(w in i.lower() for w in ["sugar", "oil", "dairy", "cream", "butter", "fried"])]
         risk = min(len(bad) * 20, 90)
-        result = {"food_name": text[:40], "risk_score": risk,
-                  "trigger": ", ".join(bad) if bad else "None", "confidence": 1.0, "mock": False,
-                  "ingredients": ingredients}
+        result = {
+            "food_name":  text[:40],
+            "risk_score": risk,
+            "trigger":    ", ".join(bad) if bad else "None",
+            "confidence": 1.0,
+            "mock":       False,
+            "ingredients": ingredients,
+        }
     else:
         raise HTTPException(status_code=400, detail="Provide image or text")
 
     log_doc = {
-        "user_id":   user_id,
-        "food_name": result.get("food_name", "Unknown"),
-        "risk_score": result.get("risk_score", 0),
-        "trigger":   result.get("trigger", ""),
-        "confidence": result.get("confidence", 0),
-        "ingredients": result.get("ingredients", [result.get("food_name","")]),
-        "mock":      result.get("mock", False),
-        "timestamp": datetime.now(timezone.utc),
+        "user_id":     user_id,
+        "food_name":   result.get("food_name", "Unknown"),
+        "risk_score":  result.get("risk_score", 0),
+        "trigger":     result.get("trigger", ""),
+        "confidence":  result.get("confidence", 0),
+        "ingredients": result.get("ingredients", [result.get("food_name", "")]),
+        "mock":        result.get("mock", False),
+        "timestamp":   datetime.now(timezone.utc),
     }
     log_doc.update(result)
+
     try:
         db = get_db()
         res = await db["food_logs"].insert_one(log_doc)
         log_doc["id"] = str(res.inserted_id)
+
+        # Refresh forecast so today's food is reflected immediately
+        await _refresh_forecast(user_id)
     except Exception as e:
         logger.error(f"DB save failed: {e}")
         log_doc["id"] = "no-db"
@@ -64,3 +72,14 @@ async def get_food_logs(user_id: str):
     except Exception as e:
         logger.error(f"get_food_logs: {e}")
         return []
+
+
+async def _refresh_forecast(user_id: str):
+    try:
+        from app.services.forecast_service import generate_forecast
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        end   = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+        await generate_forecast(user_id, today, end)
+        logger.info(f"Forecast refreshed for {user_id} after food log")
+    except Exception as e:
+        logger.error(f"Forecast refresh failed: {e}")

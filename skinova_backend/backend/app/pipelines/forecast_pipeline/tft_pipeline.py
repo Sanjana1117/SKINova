@@ -1,11 +1,8 @@
 # app/pipelines/forecast_pipeline/tft_pipeline.py
-
 import logging
 from .model_loader import load_tft_model
-
 logger = logging.getLogger(__name__)
 model = None
-
 
 def run_tft_pipeline(data):
     global model
@@ -22,19 +19,20 @@ def run_tft_pipeline(data):
         dates    = [d["date"] for d in data["timeline"]]
         n        = len(dates)
 
-        skin_scores  = [data["skin"][i]["score"]    if i < len(data["skin"])     else 0 for i in range(n)]
-        food_scores  = [data["food"][i]["score"]    if i < len(data["food"])     else 0 for i in range(n)]
-        cycle_phases = [data["cycle"][i]["phase"]   if i < len(data["cycle"])    else 1 for i in range(n)]
-        prod_scores  = [data["products"][i]["score"] if i < len(data["products"]) else 0 for i in range(n)]
+        skin_scores   = [data["skin"][i]["score"]     if i < len(data["skin"])     else 0 for i in range(n)]
+        food_scores   = [data["food"][i]["score"]     if i < len(data["food"])     else 0 for i in range(n)]
+        cycle_phases  = [data["cycle"][i]["phase"]    if i < len(data["cycle"])    else 1 for i in range(n)]
+        prod_scores   = [data["products"][i]["score"] if i < len(data["products"]) else 0 for i in range(n)]
+        # Real lesion counts from YOLO — no longer a proxy of skin_score * 10
+        lesion_counts = [data["lesions"][i]["count"]  if i < len(data.get("lesions", [])) else 0 for i in range(n)]
 
-        # Build a minimal dataframe matching training schema
         df = pd.DataFrame({
             "time_idx":                range(n),
             "group_id":                [0] * n,
             "flare_target":            [0.0] * n,
             "acne_severity_score":     skin_scores,
             "inflammatory_food_score": food_scores,
-            "lesion_count":            [s * 10 for s in skin_scores],
+            "lesion_count":            lesion_counts,          # ← real YOLO count
             "redness_score":           [0.3] * n,
             "dark_spot_score":         [0.2] * n,
             "skin_texture_score":      [0.5] * n,

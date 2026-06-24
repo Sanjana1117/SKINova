@@ -22,10 +22,9 @@ ALLOWED_NAMES = {
 
 ALLOWED_EXTENSIONS = {".pt", ".pth", ".h5", ".pkl"}
 
-
 @router.post("/upload")
 async def upload_model(
-    model_name: str = Form(...),       # e.g. "yolo_skin"
+    model_name: str = Form(...),       
     file: UploadFile = File(...),
 ):
     """

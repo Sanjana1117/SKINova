@@ -1,10 +1,14 @@
 # app/services/auth_service.py
-
 from datetime import datetime
 from bson import ObjectId
 from fastapi import HTTPException
 from app.db.mongodb import get_db
-from app.utils.security import hash_password, verify_password, create_access_token
+from app.utils.security import (
+    create_access_token,
+    hash_password,
+    verify_legacy_password,
+    verify_password,
+)
 
 
 def _get_users():
@@ -66,7 +70,21 @@ async def login_user(data):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    if not verify_password(data.password, user["password_hash"]):
+    password_hash = user["password_hash"]
+    password_valid = verify_password(data.password, password_hash)
+
+    if not password_valid and verify_legacy_password(data.password, password_hash):
+        new_password_hash = hash_password(data.password)
+        updated_at = datetime.utcnow().isoformat()
+        await col.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"password_hash": new_password_hash, "updated_at": updated_at}},
+        )
+        user["password_hash"] = new_password_hash
+        user["updated_at"] = updated_at
+        password_valid = True
+
+    if not password_valid:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     token = create_access_token({"sub": str(user["_id"])})

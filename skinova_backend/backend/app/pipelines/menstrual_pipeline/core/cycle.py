@@ -1,3 +1,4 @@
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -61,10 +62,10 @@ def _load_model():
     global _model, _scaler_X, _scaler_y
 
     model_path = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)),
-    "saved_models",
-    "skinova_bilstm_final.pt"
-)
+        os.path.dirname(os.path.dirname(__file__)),
+        "saved_models",
+        "skinova_bilstm_final.pt"
+    )
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(
@@ -136,11 +137,11 @@ def predict_cycle(
         ovul     = max(cl - 14, 10)
         luteal   = cl - ovul
         features.append([
-            cl,          # LengthofCycle
+            cl,                      # LengthofCycle
             float(period_duration),  # LengthofMenses
-            luteal,      # LengthofLutealPhase
-            ovul,        # EstimatedDayofOvulation
-            mean_cycle   # MeanCycleLength
+            luteal,                  # LengthofLutealPhase
+            ovul,                    # EstimatedDayofOvulation
+            mean_cycle               # MeanCycleLength
         ])
 
     X = np.array(features, dtype=np.float32).reshape(1, SEQUENCE_LENGTH, len(CYCLE_FEATURES))
@@ -227,7 +228,11 @@ def predict_phase_detailed(
 ) -> dict:
     """
     Detailed prediction — called from cycle_tracker.py
-    Returns full dict with phase, cycle length, ovulation, fertile window.
+    Returns full dict with phase_name as STRING (not int index).
+
+    FIX: Previously returned 'phase' as int index which broke PHASE_CONTEXT
+         lookup in cycle_tracker.py. Now returns 'phase_name' as the string
+         and 'phase' as the int index — cycle_tracker reads 'phase_name'.
     """
     past_cycles = []
     if cycle_history:
@@ -241,10 +246,13 @@ def predict_phase_detailed(
             past_cycle_lengths=past_cycles,
             period_duration=period_duration
         )
+        phase_name = result['current_phase']   # always a string
+        phase_idx  = PHASES.index(phase_name)
+
         return {
-            'phase':                   ["Menstrual","Follicular","Ovulatory","Luteal"].index(result['current_phase']),
-            'phase_name':              result['current_phase'],
-            'confidence':              None,   # regression model — no class probabilities
+            'phase':                   phase_idx,        # int index (kept for compat)
+            'phase_name':              phase_name,        # FIX: always a string
+            'confidence':              None,              # regression model — no class probs
             'probabilities':           None,
             'predicted_cycle_length':  result['predicted_cycle_length'],
             'predicted_ovulation_day': result['predicted_ovulation_day'],
@@ -256,10 +264,12 @@ def predict_phase_detailed(
     except FileNotFoundError:
         # Fallback to rule-based
         ovulation_day = max(cycle_length - 14, 10)
-        phase = _derive_phase(day_of_cycle, period_duration, ovulation_day)
+        phase_name    = _derive_phase(day_of_cycle, period_duration, ovulation_day)
+        phase_idx     = PHASES.index(phase_name)
+
         return {
-            'phase':                   ["Menstrual","Follicular","Ovulatory","Luteal"].index(phase),
-            'phase_name':              phase,
+            'phase':                   phase_idx,
+            'phase_name':              phase_name,        # FIX: always a string
             'confidence':              None,
             'probabilities':           None,
             'predicted_cycle_length':  cycle_length,

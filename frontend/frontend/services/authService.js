@@ -1,6 +1,7 @@
+//services/authService.js  —  Handles authentication API calls and token management
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "http://10.237.1.60:8000";
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function handleResponse(res) {
   const json = await res.json().catch(() => ({}));
